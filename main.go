@@ -21,6 +21,7 @@ import (
 	"log"
 	"strconv"
 	"time"
+	"github.com/ryanuber/go-glob"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
@@ -31,6 +32,7 @@ import (
 var outFile = flag.String("config.write-to", "ecs_file_sd.yml", "path of file to write ECS service discovery information to")
 var interval = flag.Duration("config.scrape-interval", 60*time.Second, "interval at which to scrape the AWS API for ECS service discovery information")
 var times = flag.Int("config.scrape-times", 0, "how many times to scrape before exiting (0 = infinite)")
+var clusterName = flag.String("config.cluster-name", "*", "glob pattern of the clusters to search (* = all)")
 
 // logError is a convenience function that decodes all possible ECS
 // errors and displays them to standard error.
@@ -57,6 +59,11 @@ func logError(err error) {
 	}
 }
 
+// FilterClusterArn filters the clusters based on the defined predicate
+func FilterClusterArn(v *string) bool {
+	return glob.Glob(*clusterName, *v)
+}
+
 // GetClusters retrieves a list of *ClusterArns from Amazon ECS,
 // dealing with the mandatory pagination as needed.
 func GetClusters(svc *ecs.ECS) (*ecs.ListClustersOutput, error) {
@@ -67,7 +74,15 @@ func GetClusters(svc *ecs.ECS) (*ecs.ListClustersOutput, error) {
 		if err != nil {
 			return nil, err
 		}
-		output.ClusterArns = append(output.ClusterArns, myoutput.ClusterArns...)
+
+		vsf := make([]*string, 0)
+		for _, v := range myoutput.ClusterArns {
+			if FilterClusterArn(v) {
+				vsf = append(vsf, v)
+			}
+		}
+
+		output.ClusterArns = append(output.ClusterArns, vsf...)
 		if output.NextToken == nil {
 			break
 		}

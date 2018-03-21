@@ -21,6 +21,7 @@ import (
 	"log"
 	"strconv"
 	"time"
+	"regexp"
 	"github.com/ryanuber/go-glob"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -196,16 +197,31 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 				hostPort = *nb.HostPort
 			}
 		}
+		// Try to look up the instance's name
+		name := "None"
+		for _, keys := range t.EC2Instance.Tags {
+			if *keys.Key == "Name" {
+				name = *keys.Value
+			}
+		}
+		// Remove repo from image
+		r, _ := regexp.Compile(".*/(.*)$")
+		image := r.FindStringSubmatch(*d.Image)[1]
+		// Shorten the family name
+		r, _ = regexp.Compile(".*-([^-]+)$")
+		family := r.FindStringSubmatch(*t.TaskDefinition.Family)[1]
+
 		labels := yaml.MapSlice{}
 		labels = append(labels,
-			yaml.MapItem{"task_arn", *t.TaskArn},
 			yaml.MapItem{"task_name", *t.TaskDefinition.Family},
 			yaml.MapItem{"task_revision", fmt.Sprintf("%d", *t.TaskDefinition.Revision)},
 			yaml.MapItem{"task_group", *t.Group},
-			yaml.MapItem{"cluster_arn", *t.ClusterArn},
+
+			yaml.MapItem{"family", family},
+			yaml.MapItem{"image", image},
+			yaml.MapItem{"instance", name},
+			yaml.MapItem{"container_instance", fmt.Sprintf("%s/%s/%s", name, family, *i.Name)},
 			yaml.MapItem{"container_name", *i.Name},
-			yaml.MapItem{"container_arn", *i.ContainerArn},
-			yaml.MapItem{"docker_image", *d.Image},
 		)
 		ret = append(ret, &PrometheusTaskInfo{
 			Targets: []string{fmt.Sprintf("%s:%d", ip, hostPort)},
